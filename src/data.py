@@ -6,11 +6,13 @@ import requests
 from PIL import Image
 
 from trowel import utils as tile_utils
-from config import TERRAIN_BASE_URL
+from src.config import TERRAIN_BASE_URL
+
 
 def terrain_tile_url(lon, lat, zoom):
     (X, Y) = tile_utils.lonlat_to_tile(lon, lat, zoom)
     return os.path.join(TERRAIN_BASE_URL, str(zoom), str(X), str(Y)) + '.png'
+
 
 def url_to_path(root, url, ending):
     path = urlparse(url).path
@@ -18,6 +20,7 @@ def url_to_path(root, url, ending):
     [z, y, x] = no_ending.split('/')[-3:]
     destination_file = z + '_' + y + '_' + x + ending
     return os.path.join(root, destination_file)
+
 
 def download_tile(url, destination=None):
     r = requests.get(url, stream=True)
@@ -30,6 +33,7 @@ def download_tile(url, destination=None):
             return Image.open(r.raw)
     else:
         print('problem downloading file: {}'.format(url))
+
 
 def decode_elevation(data):
     '''

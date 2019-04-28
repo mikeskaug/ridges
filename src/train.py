@@ -24,7 +24,7 @@ def compile_callbacks(
     return [
         TensorBoard(
             log_dir=os.path.join(logs_dir),
-            histogram_freq=0,
+            histogram_freq=1,
             write_graph=False,
             write_images=True
         ),
@@ -84,12 +84,13 @@ def train(model):
         subset='training'
     )
 
+    validation_samples = int(len(os.listdir(os.path.join(ELEVATION_TIF_DIR, 'sub'))) * 4 * (validation_fraction))
     image_validation_generator = image_datagen.flow_from_directory(
         ELEVATION_TIF_DIR,
         color_mode='grayscale',
         class_mode=None,
         seed=seed,
-        batch_size=batch_size,
+        batch_size=validation_samples,
         subset='validation'
     )
 
@@ -98,22 +99,21 @@ def train(model):
         color_mode='grayscale',
         class_mode=None,
         seed=seed,
-        batch_size=batch_size,
+        batch_size=validation_samples,
         subset='validation'
     )
 
     train_generator = zip(image_train_generator, mask_train_generator)
     validation_generator = zip(image_validation_generator, mask_validation_generator)
+    validation_data = next(validation_generator)
 
     train_samples = int(len(os.listdir(os.path.join(ELEVATION_TIF_DIR, 'sub'))) * 4 * (1-validation_fraction))
-    validation_samples = int(len(os.listdir(os.path.join(ELEVATION_TIF_DIR, 'sub'))) * 4 * (validation_fraction))
     training_history = model.fit_generator(
         train_generator,
         steps_per_epoch=int(train_samples/batch_size),
         epochs=25,
         callbacks=compile_callbacks(),
-        validation_data=validation_generator,
-        validation_steps=int(validation_samples/batch_size)
+        validation_data=validation_data
     )
 
     return model, training_history

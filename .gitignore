@@ -3,3 +3,4 @@ notebooks/*
 output/*
 misc/*
 set_env.sh
+**/__pycache__
