@@ -2,14 +2,14 @@ import os
 from functools import partial
 from datetime import datetime
 
-from keras.preprocessing.image import ImageDataGenerator
-from keras.layers import Input
-from keras.callbacks import TensorBoard, ModelCheckpoint
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.layers import Input
+from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint
 
 from config import *
 from models import unet_2x
 from losses import focal_loss
-from metrics import mean_iou
+from metrics import iou, dice_coefficient
 from dataset import load_subset
 
 
@@ -26,6 +26,7 @@ def compile_callbacks(
             log_dir=os.path.join(logs_dir),
             histogram_freq=1,
             write_graph=False,
+            write_grads=True,
             write_images=True
         ),
         # EarlyStopping(patience=10, verbose=1),
@@ -40,14 +41,14 @@ def compile_callbacks(
     ]
 
 
-def stadardize(featurewise_std, batch):
-    batch -= batch.mean(axis=(1,2), keepdims=True)
-    batch /= featurewise_std
-    return batch
+def stadardize(featurewise_std, image):
+    image -= image.mean()
+    image /= featurewise_std
+    return image
 
 
 def train(model):
-    validation_fraction = 0.1
+    validation_fraction = 0.05
     subset = load_subset(os.path.join(ELEVATION_TIF_DIR, 'sub'), frac=0.2)
     featurewise_std = subset.std()
 
@@ -65,7 +66,7 @@ def train(model):
     )
 
     seed = 1
-    batch_size = 32
+    batch_size = 4
     image_train_generator = image_datagen.flow_from_directory(
         ELEVATION_TIF_DIR,
         color_mode='grayscale',
@@ -84,7 +85,7 @@ def train(model):
         subset='training'
     )
 
-    validation_samples = int(len(os.listdir(os.path.join(ELEVATION_TIF_DIR, 'sub'))) * 4 * (validation_fraction))
+    validation_samples = int(len(os.listdir(os.path.join(ELEVATION_TIF_DIR, 'sub'))) * (validation_fraction))
     image_validation_generator = image_datagen.flow_from_directory(
         ELEVATION_TIF_DIR,
         color_mode='grayscale',
@@ -103,24 +104,25 @@ def train(model):
         subset='validation'
     )
 
-    train_generator = zip(image_train_generator, mask_train_generator)
+    train_generator = (pair for pair in zip(image_train_generator, mask_train_generator))
     validation_generator = zip(image_validation_generator, mask_validation_generator)
     validation_data = next(validation_generator)
 
-    train_samples = int(len(os.listdir(os.path.join(ELEVATION_TIF_DIR, 'sub'))) * 4 * (1-validation_fraction))
+    train_samples = int(len(os.listdir(os.path.join(ELEVATION_TIF_DIR, 'sub'))) * (1-validation_fraction))
     training_history = model.fit_generator(
         train_generator,
         steps_per_epoch=int(train_samples/batch_size),
-        epochs=25,
+        epochs=10,
         callbacks=compile_callbacks(),
         validation_data=validation_data
     )
 
     return model, training_history
 
+
 if __name__ == "__main__":
     input_img = Input((*IMAGE_SIZE, 1), name='img')
-    model = unet_2x(input_img, n_filters=8, dropout=0.05, batchnorm=False, logits=False)
-    model.compile(optimizer='Adam', loss=focal_loss, metrics=['accuracy', mean_iou])
+    model = unet_2x(input_img, n_filters=8, dropout=0.0, batchnorm=False, logits=False)
+    model.compile(optimizer='Adam', loss=focal_loss, metrics=['accuracy', dice_coefficient])
 
     model, history = train(model)
