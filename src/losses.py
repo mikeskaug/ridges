@@ -1,28 +1,13 @@
 
-from keras import backend as K
+from tensorflow.keras import backend as K
 import tensorflow as tf
 
 
 def dice_loss(y_true, y_pred):
     smooth = 1.
-    y_true_f = K.flatten(y_true)
-    y_pred_f = K.flatten(y_pred)
-    intersection = y_true_f * y_pred_f
-    score = (2. * K.sum(intersection) + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
+    intersection = y_true * y_pred
+    score = (2. * tf.reduce_sum(intersection) + smooth) / (tf.reduce_sum(y_true) + tf.reduce_sum(y_pred) + smooth)
     return 1. - score
-
-
-def lovasz_grad(gt_sorted):
-    '''
-    Computes gradient of the Lovasz extension w.r.t sorted errors
-    See Alg. 1 in paper
-    '''
-    gts = tf.reduce_sum(gt_sorted)
-    intersection = gts - tf.cumsum(gt_sorted)
-    union = gts + tf.cumsum(1. - gt_sorted)
-    jaccard = 1. - intersection / union
-    jaccard = tf.concat((jaccard[0:1], jaccard[1:] - jaccard[:-1]), 0)
-    return jaccard
 
 
 def keras_lovasz_hinge(labels, logits):
@@ -32,6 +17,7 @@ def keras_lovasz_hinge(labels, logits):
 def lovasz_hinge(logits, labels, per_image=True, ignore=None):
     '''
     from https://github.com/bermanmaxim/LovaszSoftmax/blob/master/tensorflow/lovasz_losses_tf.py
+    See The Lovász-Softmax loss... https://arxiv.org/abs/1705.08790
     Binary Lovasz hinge loss
       logits: [B, H, W] Variable, logits at each pixel (between -\infty and +\infty)
       labels: [B, H, W] Tensor, binary ground truth masks (0 or 1)
@@ -108,3 +94,22 @@ def focal_loss(y_true, y_pred):
     pt_0 = K.clip(pt_0, eps, 1 - eps)
 
     return -K.mean(alpha * K.pow(1. - pt_1, gamma) * K.log(pt_1)) - K.mean((1 - alpha) * K.pow(pt_0, gamma) * K.log(1. - pt_0))
+
+
+def balanced_cross_entropy(alpha, y_true, y_pred):
+    '''
+    Compute the balanced cross entropy. Good for cases of large class imbalance.
+
+    To more heavily penalize false negatives, set alpha > 0.
+    To decrease false positivees, set alpha < 0
+    '''
+    # setting false locations to ones_like or zeros_like will result in log(pt_1) or log(1-pt_0) going to zero
+    pt_1 = tf.where(tf.equal(y_true, 1), y_pred, tf.ones_like(y_pred))
+    pt_0 = tf.where(tf.equal(y_true, 0), y_pred, tf.zeros_like(y_pred))
+
+    # I've seen this other places. Assume it's to avoid possibly log(0).
+    eps = 1e-4
+    pt_1 = K.clip(pt_1, eps, 1 - eps)
+    pt_0 = K.clip(pt_0, eps, 1 - eps)
+
+    return -K.mean(alpha * K.log(pt_1)) - K.mean((1 - alpha) * K.log(1. - pt_0))
