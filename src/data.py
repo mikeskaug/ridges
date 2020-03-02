@@ -6,7 +6,7 @@ import requests
 from PIL import Image
 
 from trowel import utils as tile_utils
-from src.config import TERRAIN_BASE_URL
+from config import TERRAIN_BASE_URL
 
 
 def terrain_tile_url(lon, lat, zoom):

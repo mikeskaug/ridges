@@ -5,9 +5,9 @@ import numpy as np
 
 from trowel import utils
 
-from src.data import url_to_path, download_tile, decode_elevation
-from src.config import TERRAIN_BASE_URL, ELEVATION_PNG_DIR, DEFAULT_ZOOM
-from src.transforms import ridges
+from data import url_to_path, download_tile, decode_elevation
+from config import TERRAIN_BASE_URL, ELEVATION_PNG_DIR, DEFAULT_ZOOM
+from transforms import ridges
 
 
 def harvest_tiles(bounds, zoom=DEFAULT_ZOOM, out_dir=ELEVATION_PNG_DIR):

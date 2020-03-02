@@ -6,6 +6,7 @@ from PIL import Image, ImageFilter
 GRADIENT_THRESHOLD = 50
 CURVATURE_THRESHOLD = 10e3  
 
+
 def resize(image, size):
     im = Image.fromarray(image)
     im_new = im.resize(size=size, resample=Image.BILINEAR)
@@ -23,7 +24,6 @@ def local_maxima(image):
         [-1, 0, -1]
     ])
     kernel = kernel - kernel.mean()
-    print(kernel, kernel.sum())
     maxima = signal.convolve2d(image, kernel, boundary='symm', mode='same')
     return maxima - image
 
