@@ -13,7 +13,7 @@ def iou(y_true, y_pred):
 
 
 def dice_coefficient(y_true, y_pred):
-    intersection = 2 * tf.reduce_sum(y_true * y_pred, axis=-1)
-    union = tf.reduce_sum(y_true + y_pred, axis=-1)
+    intersection = 2 * tf.reduce_sum(y_true * y_pred, axis=(1,2,3))
+    union = tf.reduce_sum(y_true + y_pred, axis=(1,2,3))
 
     return (intersection + 1) / (union + 1)

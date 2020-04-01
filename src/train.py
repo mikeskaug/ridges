@@ -7,8 +7,8 @@ from tensorflow.keras.layers import Input
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint
 
 from config import *
-from models import unet_2x
-from losses import focal_loss
+from models import unet_2x, LFE, stacked_multi_scale
+from losses import focal_loss, balanced_cross_entropy, dice_loss, bce_plus_dice
 from metrics import iou, dice_coefficient
 from dataset import load_subset
 
@@ -25,9 +25,10 @@ def compile_callbacks(
         TensorBoard(
             log_dir=os.path.join(logs_dir),
             histogram_freq=1,
+            update_freq='epoch',
             write_graph=False,
-            write_grads=True,
-            write_images=True
+            write_images=True,
+            profile_batch=0
         ),
         # EarlyStopping(patience=10, verbose=1),
         # ReduceLROnPlateau(factor=0.1, patience=3, min_lr=0.00001, verbose=1),
@@ -52,6 +53,7 @@ def train(model):
     subset = load_subset(os.path.join(ELEVATION_TIF_DIR, 'sub'), frac=0.2)
     featurewise_std = subset.std()
 
+    augmentation_factor = 3 # the additional factor of training samples obtained via augmentation
     image_datagen = ImageDataGenerator(
         horizontal_flip=True,
         vertical_flip=True,
@@ -66,7 +68,7 @@ def train(model):
     )
 
     seed = 1
-    batch_size = 4
+    batch_size = 16
     image_train_generator = image_datagen.flow_from_directory(
         ELEVATION_TIF_DIR,
         color_mode='grayscale',
@@ -108,11 +110,11 @@ def train(model):
     validation_generator = zip(image_validation_generator, mask_validation_generator)
     validation_data = next(validation_generator)
 
-    train_samples = int(len(os.listdir(os.path.join(ELEVATION_TIF_DIR, 'sub'))) * (1-validation_fraction))
+    train_samples = int(len(os.listdir(os.path.join(ELEVATION_TIF_DIR, 'sub'))) * (1-validation_fraction) * augmentation_factor)
     training_history = model.fit_generator(
         train_generator,
         steps_per_epoch=int(train_samples/batch_size),
-        epochs=10,
+        epochs=50,
         callbacks=compile_callbacks(),
         validation_data=validation_data
     )
@@ -122,7 +124,9 @@ def train(model):
 
 if __name__ == "__main__":
     input_img = Input((*IMAGE_SIZE, 1), name='img')
-    model = unet_2x(input_img, n_filters=8, dropout=0.0, batchnorm=False, logits=False)
-    model.compile(optimizer='Adam', loss=focal_loss, metrics=['accuracy', dice_coefficient])
+    # model = unet_2x(input_img, n_filters=8, dropout=0.0, batchnorm=False, logits=False)
+    # model = LFE(input_img, n_filters=8, batchnorm=False, logits=False)
+    model = stacked_multi_scale(input_img, n_filters=16, batchnorm=False, logits=False)
+    model.compile(optimizer='Adam', loss=bce_plus_dice, metrics=['accuracy', dice_coefficient])
 
     model, history = train(model)
