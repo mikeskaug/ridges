@@ -7,7 +7,9 @@ def dice_loss(y_true, y_pred):
     intersection = 2 * tf.reduce_sum(y_true * y_pred, axis=(1,2,3))
     union = tf.reduce_sum(y_true + y_pred, axis=(1,2,3))
 
-    return 1 - intersection  / union
+    # return shape = (batch,)
+    # the +1 terms ensure loss=0 when y_true = 0, or a tile contains no ridges
+    return 1 - (intersection + 1)  / (union + 1)
 
 
 def keras_lovasz_hinge(labels, logits):
@@ -103,7 +105,7 @@ def balanced_cross_entropy(y_true, y_pred):
     To more heavily penalize false negatives, set alpha > 0.5.
     To decrease false positivees, set alpha < 0.5
     '''
-    alpha = 0.9
+    alpha = 0.92
     # setting false locations to ones_like or zeros_like will result in log(pt_1) or log(1-pt_0) going to zero
     pt_1 = tf.where(tf.equal(y_true, 1), y_pred, tf.ones_like(y_pred))
     pt_0 = tf.where(tf.equal(y_true, 0), y_pred, tf.zeros_like(y_pred))
@@ -112,6 +114,28 @@ def balanced_cross_entropy(y_true, y_pred):
     eps = 1e-4
     pt_1 = tf.clip_by_value(pt_1, eps, 1 - eps)
     pt_0 = tf.clip_by_value(pt_0, eps, 1 - eps)
+
+    # reduce_sum eliminates the size=1 channel axis so the result is [batch, width, height]
+    return -tf.reduce_sum(alpha * K.log(pt_1), axis=-1) - tf.reduce_sum((1 - alpha) * K.log(1. - pt_0), axis=-1)
+
+
+def per_sample_balanced_cross_entropy(y_true, y_pred):
+    '''
+    Compute the balanced cross entropy. Good for cases of large class imbalance.
+
+    Weighting is computed per sample/image as alpha = num_non_ridge / num_pixels
+    '''
+    # setting false locations to ones_like or zeros_like will result in log(pt_1) or log(1-pt_0) going to zero
+    pt_1 = tf.where(tf.equal(y_true, 1), y_pred, tf.ones_like(y_pred))
+    pt_0 = tf.where(tf.equal(y_true, 0), y_pred, tf.zeros_like(y_pred))
+
+    # I've seen this other places. Assume it's to avoid possibly log(0).
+    eps = 1e-4
+    pt_1 = tf.clip_by_value(pt_1, eps, 1 - eps)
+    pt_0 = tf.clip_by_value(pt_0, eps, 1 - eps)
+
+    # compute per sample weight
+    alpha = 1 - tf.reduce_sum(y_true, axis=[1,2,3]) / tf.cast(tf.shape(y_true)[1] * tf.shape(y_true)[2] * tf.shape(y_true)[3], tf.float32)
 
     # reduce_sum eliminates the size=1 channel axis so the result is [batch, width, height]
     return -tf.reduce_sum(alpha * K.log(pt_1), axis=-1) - tf.reduce_sum((1 - alpha) * K.log(1. - pt_0), axis=-1)
