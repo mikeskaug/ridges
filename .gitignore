@@ -4,3 +4,5 @@ misc/*
 set_env.sh
 **/__pycache__
 .env
+**/.ipynb_checkpoints
+*.egg-info
