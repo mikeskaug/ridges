@@ -11,9 +11,9 @@ DEFAULT_ZOOM = 12
 
 COLORADO_BOUNDS = (-109.00634, 37.02886, -102.09594, 41.0)
 
-ELEVATION_PNG_DIR = f'{os.environ["RIDGES_ROOT"]}/data/terrain/Colorado/train/png'
-ELEVATION_TIF_DIR = f'{os.environ["RIDGES_ROOT"]}/data/terrain/Colorado/train/tif'
-MASK_TIF_DIR = f'{os.environ["RIDGES_ROOT"]}/data/terrain/Colorado/train/mask'
+ELEVATION_PNG_DIR = f'{os.environ["RIDGES_ROOT"]}/data/high_ridge_terrain/Colorado/train/png'
+ELEVATION_TIF_DIR = f'{os.environ["RIDGES_ROOT"]}/data/high_ridge_terrain/Colorado/train/tif/sub'
+MASK_TIF_DIR = f'{os.environ["RIDGES_ROOT"]}/data/high_ridge_terrain/Colorado/train/mask/sub'
 LOGS_DIR = f'{os.environ["RIDGES_ROOT"]}/output/logs'
 CHECKPOINT_DIR = f'{os.environ["RIDGES_ROOT"]}/output/checkpoint'
 

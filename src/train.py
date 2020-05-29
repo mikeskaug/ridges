@@ -2,15 +2,17 @@ import os
 from functools import partial
 from datetime import datetime
 
+import numpy as np
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.layers import Input
-from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, ReduceLROnPlateau
 
 from config import *
-from models import unet_2x, LFE, stacked_multi_scale
-from losses import focal_loss, balanced_cross_entropy, dice_loss, bce_plus_dice
+from models import unet_2x, LFE, stacked_multi_scale, HED
+from losses import focal_loss, balanced_cross_entropy, dice_loss, bce_plus_dice, per_sample_balanced_cross_entropy
 from metrics import iou, dice_coefficient
-from dataset import load_subset
+from dataset import load_subset, CustomImageDataGenerator
 
 
 def compile_callbacks(
@@ -27,95 +29,74 @@ def compile_callbacks(
             histogram_freq=1,
             update_freq='epoch',
             write_graph=False,
-            write_images=True,
+            write_images=False,
             profile_batch=0
         ),
         # EarlyStopping(patience=10, verbose=1),
-        # ReduceLROnPlateau(factor=0.1, patience=3, min_lr=0.00001, verbose=1),
-        ModelCheckpoint(    
+        # ReduceLROnPlateau(
+        #     monitor='loss',
+        #     factor=0.1, 
+        #     patience=5, 
+        #     min_lr=0.00001, 
+        #     verbose=1,
+        #     cooldown=10
+        # ),
+        ModelCheckpoint(
             os.path.join(checkpoint_dir, 'weights.{epoch:02d}-{val_loss:.2f}.hdf5'), 
-            verbose=1, 
-            save_best_only=True, 
+            verbose=1,
+            save_freq='epoch',
+            save_best_only=False, 
             save_weights_only=True
         )
     
     ]
 
 
-def stadardize(featurewise_std, image):
-    image -= image.mean()
-    image /= featurewise_std
-    return image
+def standardize_batch(featurewise_std, batch):
+    batch -= batch.mean(axis=(1,2), keepdims=True)
+    batch /= featurewise_std
+
+    return batch
 
 
 def train(model):
     validation_fraction = 0.05
-    subset = load_subset(os.path.join(ELEVATION_TIF_DIR, 'sub'), frac=0.2)
+    batch_size = 8
+    subset = load_subset(ELEVATION_TIF_DIR, frac=0.2)
     featurewise_std = subset.std()
 
-    augmentation_factor = 3 # the additional factor of training samples obtained via augmentation
-    image_datagen = ImageDataGenerator(
-        horizontal_flip=True,
-        vertical_flip=True,
-        preprocessing_function=partial(stadardize, featurewise_std),
-        validation_split=validation_fraction
-    )
-    mask_datagen = ImageDataGenerator(
-        horizontal_flip=True,
-        vertical_flip=True,
-        validation_split=validation_fraction,
-        rescale=1/255
-    )
+    files = os.listdir(ELEVATION_TIF_DIR)
+    np.random.shuffle(files)
+    train_files = files[:int(len(files)*(1-validation_fraction))]
+    validation_files = files[int(len(files)*(1-validation_fraction)):]
 
-    seed = 1
-    batch_size = 16
-    image_train_generator = image_datagen.flow_from_directory(
-        ELEVATION_TIF_DIR,
-        color_mode='grayscale',
-        class_mode=None,
-        seed=seed,
-        batch_size=batch_size,
-        subset='training'
+    training_generator = CustomImageDataGenerator(
+        ELEVATION_TIF_DIR, 
+        MASK_TIF_DIR, 
+        train_files, 
+        batch_size=batch_size, 
+        standardize_batch=partial(standardize_batch, featurewise_std), 
+        rescale_y=1/255,
+        n_outputs=5
     )
 
-    mask_train_generator = mask_datagen.flow_from_directory(
-        MASK_TIF_DIR,
-        color_mode='grayscale',
-        class_mode=None,
-        seed=seed,
-        batch_size=batch_size,
-        subset='training'
+    validation_generator = CustomImageDataGenerator(
+        ELEVATION_TIF_DIR, 
+        MASK_TIF_DIR, 
+        validation_files, 
+        batch_size=len(validation_files)*8, 
+        standardize_batch=partial(standardize_batch, featurewise_std), 
+        rescale_y=1/255,
+        n_outputs=5
     )
+    validation_data = validation_generator.__getitem__(0)
 
-    validation_samples = int(len(os.listdir(os.path.join(ELEVATION_TIF_DIR, 'sub'))) * (validation_fraction))
-    image_validation_generator = image_datagen.flow_from_directory(
-        ELEVATION_TIF_DIR,
-        color_mode='grayscale',
-        class_mode=None,
-        seed=seed,
-        batch_size=validation_samples,
-        subset='validation'
-    )
-
-    mask_validation_generator = mask_datagen.flow_from_directory(
-        MASK_TIF_DIR,
-        color_mode='grayscale',
-        class_mode=None,
-        seed=seed,
-        batch_size=validation_samples,
-        subset='validation'
-    )
-
-    train_generator = (pair for pair in zip(image_train_generator, mask_train_generator))
-    validation_generator = zip(image_validation_generator, mask_validation_generator)
-    validation_data = next(validation_generator)
-
-    train_samples = int(len(os.listdir(os.path.join(ELEVATION_TIF_DIR, 'sub'))) * (1-validation_fraction) * augmentation_factor)
-    training_history = model.fit_generator(
-        train_generator,
-        steps_per_epoch=int(train_samples/batch_size),
+    training_history = model.fit(
+        training_generator,
+        steps_per_epoch=len(training_generator),
         epochs=50,
         callbacks=compile_callbacks(),
+        shuffle=False,
         validation_data=validation_data
     )
 
@@ -124,9 +105,14 @@ def train(model):
 
 if __name__ == "__main__":
     input_img = Input((*IMAGE_SIZE, 1), name='img')
-    # model = unet_2x(input_img, n_filters=8, dropout=0.0, batchnorm=False, logits=False)
-    # model = LFE(input_img, n_filters=8, batchnorm=False, logits=False)
-    model = stacked_multi_scale(input_img, n_filters=16, batchnorm=False, logits=False)
-    model.compile(optimizer='Adam', loss=bce_plus_dice, metrics=['accuracy', dice_coefficient])
-
+   
+    model = HED(input_img)
+    model.compile(loss={'o1': balanced_cross_entropy,
+                        'o2': balanced_cross_entropy,
+                        'o3': balanced_cross_entropy,
+                        'o4': balanced_cross_entropy,
+                        'ofuse': balanced_cross_entropy,
+                        },
+                  metrics={'ofuse': ['accuracy', dice_coefficient]},
+                  optimizer=Adam(learning_rate=0.001))
     model, history = train(model)
