@@ -5,9 +5,12 @@ from tensorflow.keras import backend as K
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import (
     BatchNormalization, Activation, Dense, Dropout,
-    Conv2D, Conv2DTranspose, MaxPooling2D, concatenate
+    Conv2D, Conv2DTranspose, MaxPooling2D, concatenate,
+    UpSampling2D
 )
+from tensorflow.keras import regularizers
 from tensorflow.keras.initializers import Constant
+from tensorflow.keras.applications import VGG16
 
 
 def gradient_kernel(shape, dtype=K.floatx()):
@@ -192,5 +195,108 @@ def stacked_multi_scale(input_img, n_filters=16, batchnorm=True, logits=False):
         outputs = Conv2D(1, (1, 1), activation='sigmoid', kernel_initializer='truncated_normal', bias_initializer=Constant(value=-np.log((1 - 0.01)/0.01)))(c)
 
     model = Model(inputs=[input_img], outputs=[outputs])
+
+    return model
+
+
+def side_branch(x, factor):
+    x = Conv2D(1, (1, 1), activation=None, padding='same')(x)
+
+    # kernel_size = (2*factor, 2*factor)
+    # x = Conv2DTranspose(1, kernel_size, strides=factor, padding='same', use_bias=True, activation=None)(x)
+    x = UpSampling2D(size=(factor, factor), interpolation='bilinear')(x)
+
+    return x
+
+
+def HED(input_img):
+
+    # Block 1
+    x = Conv2D(64, (3, 3), padding='same', name='block1_conv1')(input_img)
+    x = BatchNormalization()(x)
+    x = Activation('relu')(x)
+    x = Conv2D(64, (3, 3), padding='same', name='block1_conv2')(x)
+    x = BatchNormalization()(x)
+    x = Activation('relu')(x)
+    b1= side_branch(x, 1) # 256 256 1
+    x = MaxPooling2D((2, 2), strides=(2, 2), padding='same', name='block1_pool')(x) # 128 128 64
+
+    # Block 2
+    x = Conv2D(128, (3, 3), padding='same', name='block2_conv1')(x)
+    x = BatchNormalization()(x)
+    x = Activation('relu')(x)
+    x = Conv2D(128, (3, 3), padding='same', name='block2_conv2')(x)
+    x = BatchNormalization()(x)
+    x = Activation('relu')(x)
+    b2= side_branch(x, 2) # 256 256 1
+    x = MaxPooling2D((2, 2), strides=(2, 2), padding='same', name='block2_pool')(x) # 64 64 128
+
+    # Block 3
+    x = Conv2D(256, (3, 3), padding='same', name='block3_conv1')(x)
+    x = BatchNormalization()(x)
+    x = Activation('relu')(x)
+    x = Conv2D(256, (3, 3), padding='same', name='block3_conv2')(x)
+    x = BatchNormalization()(x)
+    x = Activation('relu')(x)
+    x = Conv2D(256, (3, 3), padding='same', name='block3_conv3')(x)
+    x = BatchNormalization()(x)
+    x = Activation('relu')(x)
+    b3= side_branch(x, 4) # 256 256 1
+    x = MaxPooling2D((2, 2), strides=(2, 2), padding='same', name='block3_pool')(x) # 32 32 256
+
+    # Block 4
+    x = Conv2D(512, (3, 3), padding='same', name='block4_conv1')(x)
+    x = BatchNormalization()(x)
+    x = Activation('relu')(x)
+    x = Conv2D(512, (3, 3), padding='same', name='block4_conv2')(x)
+    x = BatchNormalization()(x)
+    x = Activation('relu')(x)
+    x = Conv2D(512, (3, 3), padding='same', name='block4_conv3')(x) # 32 32 512
+    x = BatchNormalization()(x)
+    x = Activation('relu')(x)
+    b4= side_branch(x, 8) # 256 256 1
+
+    # fuse
+    fuse = concatenate([b1, b2, b3, b4], axis=-1)
+    fuse = Conv2D(1, (1, 1), 
+        padding='same', 
+        use_bias=False, 
+        activation=None, 
+        kernel_initializer=Constant(value=1/5), 
+        kernel_regularizer=regularizers.l2(0.0002)
+    )(fuse) # 480 480 1
+
+    # outputs
+    o1    = Activation('sigmoid', name='o1')(b1)
+    o2    = Activation('sigmoid', name='o2')(b2)
+    o3    = Activation('sigmoid', name='o3')(b3)
+    o4    = Activation('sigmoid', name='o4')(b4)
+    ofuse = Activation('sigmoid', name='ofuse')(fuse)
+
+    model = Model(inputs=[input_img], outputs=[o1, o2, o3, o4, ofuse])
+
+    # layers which will have weights set using pretrained VGG16 model
+    transfer_layers = [
+        'block1_conv1',
+        'block1_conv2',
+        'block2_conv1',
+        'block2_conv2',
+        'block3_conv1',
+        'block3_conv2',
+        'block3_conv3',
+        'block4_conv1',
+        'block4_conv2',
+        'block4_conv3',
+    ]
+    vgg16 = VGG16()
+    for layer_name in transfer_layers:
+        weights = vgg16.get_layer(layer_name).get_weights()
+        if layer_name == 'block1_conv1':
+            # vgg16 is built for 3 channel RGB input images, 
+            # so we'll average across the channel axis in the first layer to match our 1 channel input
+            weights[0] = weights[0].mean(axis=2, keepdims=True)
+        
+        model.get_layer(layer_name).set_weights(weights)
+        # model.get_layer(layer_name).trainable = False
 
     return model
