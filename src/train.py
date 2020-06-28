@@ -12,7 +12,7 @@ from config import *
 from models import unet_2x, LFE, stacked_multi_scale, HED
 from losses import focal_loss, balanced_cross_entropy, dice_loss, bce_plus_dice, per_sample_balanced_cross_entropy
 from metrics import iou, dice_coefficient
-from dataset import load_subset, CustomImageDataGenerator
+from dataset import load_subset, CustomImageDataGenerator, standardize_batch
 
 
 def compile_callbacks(
@@ -50,13 +50,6 @@ def compile_callbacks(
         )
     
     ]
-
-
-def standardize_batch(featurewise_std, batch):
-    batch -= batch.mean(axis=(1,2), keepdims=True)
-    batch /= featurewise_std
-
-    return batch
 
 
 def train(model):

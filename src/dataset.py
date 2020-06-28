@@ -45,6 +45,13 @@ def create_masks(tif_dir, mask_dir):
         mask.save(os.path.join(mask_dir, fl))
 
 
+def standardize_batch(featurewise_std, batch):
+    batch -= batch.mean(axis=(1,2), keepdims=True)
+    batch /= featurewise_std
+
+    return batch
+    
+
 def load_subset(data_dir, N=None, frac=None, seed=1):
     '''
     Load a random subset of the images in a directory and return as an Nx256x256x1 numpy array
