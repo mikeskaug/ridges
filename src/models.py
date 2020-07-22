@@ -201,16 +201,17 @@ def stacked_multi_scale(input_img, n_filters=16, batchnorm=True, logits=False):
 
 def side_branch(x, factor):
     x = Conv2D(1, (1, 1), activation=None, padding='same')(x)
-
-    # kernel_size = (2*factor, 2*factor)
-    # x = Conv2DTranspose(1, kernel_size, strides=factor, padding='same', use_bias=True, activation=None)(x)
     x = UpSampling2D(size=(factor, factor), interpolation='bilinear')(x)
 
     return x
 
 
 def HED(input_img):
+    '''
+    Implementation of holistically-nested edge detection
 
+    See: https://arxiv.org/abs/1504.06375
+    '''
     # Block 1
     x = Conv2D(64, (3, 3), padding='same', name='block1_conv1')(input_img)
     x = BatchNormalization()(x)
@@ -264,7 +265,7 @@ def HED(input_img):
         activation=None, 
         kernel_initializer=Constant(value=1/5), 
         kernel_regularizer=regularizers.l2(0.0002)
-    )(fuse) # 480 480 1
+    )(fuse) # 256 256 1
 
     # outputs
     o1    = Activation('sigmoid', name='o1')(b1)
